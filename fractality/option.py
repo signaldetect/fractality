@@ -2,7 +2,7 @@
 
 import numpy
 
-class PckOption:
+class PacOption:
   rank_size = 2 # размер ранговой области
   min_rank_size = 1
   dom_step = 1 # шаг поиска домена

@@ -104,6 +104,7 @@ class PacImage:
     #
     for recs in root.values():
       for i in xrange(0, len(recs), 2):
+        #self.txt_bits(recs[i], recs[i + 1])
         self.add_bits(recs[i], recs[i + 1])
     #
     del root

@@ -157,14 +157,16 @@ class Packer:
       if idx.size > 0:
         self.save_doms(i[idx], best_u[idx], best_v[idx],
                        best_t[idx], best_x[idx], best_y[idx])
-        #
         self.proc_ranks(i[idx])
     else:
       (t, i, j) = numpy.nonzero(eps <= self.quick_eps)
       if t.size > 0:
-        (best_x, best_y) = doms.coord(j)
-        self.save_doms(i, u[t, i, j], v[t, i, j], t.copy(), best_x, best_y)
+        (val, idx) = numpy.unique(i, return_index=True)
         #
+        (t, i, j) = (t[idx], i[idx], j[idx])
+        (x, y) = doms.coord(j)
+        #
+        self.save_doms(i, u[t, i, j], v[t, i, j], t, x, y)
         self.proc_ranks(i)
 
   def proc_ranks(self, idx):

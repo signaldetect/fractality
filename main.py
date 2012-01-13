@@ -3,27 +3,27 @@
 from fractality import Packer
 import time
 
-#import psyco
-#psyco.bind(Packer.compress)
-#psyco.bind(Packer.process)
+import psyco
+psyco.bind(Packer.compress)
+psyco.bind(Packer.calc_for_rank)
 #psyco.log()
 #psyco.profile()
 
 def main():
-  pac = Packer()
+  pck = Packer()
   #
-  pac.image.load('arthrosis.bmp')
+  pck.image.load('cover.jpg')
   #
-  pac.option.rank_size = 8
-  pac.option.dom_step = 4
-  pac.option.find_best_dom = True
+  pck.option.rank_size = 4
+  pck.option.dom_step = 2
+  pck.option.find_best_dom = True
   #
   tic = time.time()
-  pac.compress(eps=0.005)
+  pck.compress(eps=0.005)
   toc = time.time() - tic
   print '\n{0:.2f} sec. ({1:.2f} min.) has elapsed'.format(toc, toc / 60)
   #
-  pac.fpac.save('arthrosis.fpac')
+  pck.fpck.save('cover.fpck')
 
 if __name__ == '__main__':
   main()

@@ -25,22 +25,18 @@ class SrcImage:
   def show(self):
     pass
   
-class PacImage:
+class PckImage:
   option = None
 
-  cur_level = 0
-  levels = None
-
   cur_bit = 0
+  #bits = None
   out_buf = None
 
   def __init__(self):
-    #self.fid = open('debug.dat', 'wt')
-    pass
+    self.fid = open('debug.dat', 'wt')
 
   def __del__(self):
-    #self.fid.close()
-    pass
+    self.fid.close()
 
   def setup(self):
     '''
@@ -52,71 +48,15 @@ class PacImage:
     # Выделение памяти под выходной буфер
     self.out_buf = numpy.zeros(n, dtype=numpy.uint16)
 
-  def start_rec(self):
-    '''
-    '''
-    size = self.option.rank_size
-    n = int(numpy.ceil(numpy.log2(size)))
-    #
-    self.levels = list()
-    for i in xrange(n):
-      self.levels.append(dict())
-    #
-    self.cur_level = 0
-
-  def next_level(self):
-    '''
-    '''
-    self.cur_level += 1
-
-  def rec_bits(self, r, b, val):
-    '''
-      :param r:
-      :param b:
-      :param val:
-    '''
-    #self.fid.write('{0}: {1}\t{2}\n'.format(r, b, val))
-    i = self.cur_level
-    if self.levels[i].has_key(r):
-      self.levels[i][r] += [b, val]
-    else:
-      self.levels[i][r] = [b, val]
-
-  def flush_bits(self, width):
-    '''
-      :param width:
-    '''
-    size = self.option.rank_size
-    n = int(numpy.ceil(numpy.log2(size))) - 1
-    #
-    for i in xrange(n, 0, -1):
-      num_x = width / (2 ** (abs(i - n) + 1))
-      #
-      for id in self.levels[i].keys():
-        y = id / (2 * num_x)
-        x = (id % num_x) / 2
-        parent_id = (num_x / 2) * y + x
-        #
-        self.levels[i - 1][parent_id] += self.levels[i][id]
-    #
-    root = self.levels[0]
-    del self.levels
-    #
-    for recs in root.values():
-      for i in xrange(0, len(recs), 2):
-        #self.txt_bits(recs[i], recs[i + 1])
-        self.add_bits(recs[i], recs[i + 1])
-    #
-    del root
-
-  def txt_bits(self, b, val):
-    self.fid.write('{0}\t{1}\n'.format(b, val))
-
   def add_bits(self, b, val):
     '''
       :param b:
       :param val:
     '''
+    #
+    self.fid.write('{0}\t{1}\n'.format(b, val))
+    #
+    #
     nb = numpy.uint8(b) # bit8
     val = numpy.uint16(val) # bit16
     #

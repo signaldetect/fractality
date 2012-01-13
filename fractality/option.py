@@ -2,11 +2,12 @@
 
 import numpy
 
-class PckOption:
+class PacOption:
   rank_size = 2 # размер ранговой области
   min_rank_size = 1
   dom_step = 1 # шаг поиска домена
   find_best_dom = False # искать лучший домен
+  eps = 0.0 # точность (максимальное СКО)
 
   width = 0
   height = 0

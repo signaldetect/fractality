@@ -5,54 +5,56 @@
 import numpy
 import sys
 
-from image import SrcImage, PckImage
-from option import PckOption
-from square import Square, Transform
+from image import SrcImage, PacImage
+from option import PacOption
+from square import Ranks, Domains
 
 class Packer:
   '''
   Example:
-    pck = Packer()
-    pck.image.load('file.jpg')
-    pck.option.rank_size = 8
-    pck.option.dom_step = 4
-    pck.option.find_best_dom = True
-    pck.compress(eps=0.005)
-    pck.fpck.save('file.fpck')
+    pac = Packer()
+    pac.image.load('file.jpg')
+    pac.option.rank_size = 8
+    pac.option.dom_step = 4
+    pac.option.find_best_dom = True
+    pac.option.eps=0.005
+    pac.compress()
+    pac.fpac.save('file.fpac')
 
   Parameters:
-    eps  точность (максимальное СКО)
-    rank_size  размер ранговой области
-    dom_step  шаг поиска домена
-    find_best_dom  True - искать лучший домен, False - искать домен удовлетворяющий макс. СКО
+    rank_size -- размер ранговой области
+    dom_step -- шаг поиска домена
+    find_best_dom -- True - искать лучший домен,
+                     False - искать домен удовлетворяющий макс. СКО
+    eps -- точность (максимальное СКО)
   '''
 
   image = SrcImage()
-  option = PckOption()
-  fpck = PckImage()
+  option = PacOption()
+  fpac = PacImage()
 
   quick_eps = 0.0
-  cur_layer = 0
   doms_x = 0
   doms_y = 0
   dom_bit_x = 0
   dom_bit_y = 0
-  doms = None
+
+  ranks = None
+  proc_ranks_idx = None
 
   def __init__(self):
-    self.fpck.option = self.option
+    self.fpac.option = self.option
 
-  def compress(self, eps):
+  def compress(self):
     '''
-      :param eps: Точность (максимальное СКО)
     '''
 #    pdb.set_trace()
     (width, height) = self.option.fix_image_size(self.image)
-    self.fpck.setup()
+    self.fpac.setup()
     #
     size = self.option.rank_size
     #
-    eps *= 256
+    eps = self.option.eps * 256
     self.quick_eps = eps * eps * size * size
     # Кол-во доменов, умещающихся по горизонтали и вертикали
     self.doms_x = (width - 2 * size) / self.option.dom_step + 1
@@ -61,212 +63,155 @@ class Packer:
     self.dom_bit_x = numpy.uint8(numpy.ceil(numpy.log2(self.doms_x)))
     self.dom_bit_y = numpy.uint8(numpy.ceil(numpy.log2(self.doms_y)))
     #
-    dom_group = numpy.ceil(numpy.log2(size))
-    self.doms = numpy.empty((self.doms_y, self.doms_x, dom_group), dtype=object)
-    #
-    rank = Square()
-    # Кол-во рангов
-    nrank = 3 * width * height / (size * size)
-    n = 0
-    process = 0.0
-    #
-    c = 0
-    while c < 3:
-      self.cur_layer = c
-      data = self.cur_color_map()
+    m = 3.0 * numpy.ceil(numpy.log2(size))
+    n = 0.0
+    for c in xrange(3):
+      mx = self.image.mx[:, :, c]
+      size = self.option.rank_size
       #
-      x = 0
-      while x < width:
-        y = 0
-        while y < height:
-          rank.fill_data(data, y, x, size)
-          self.calc_for_rank(rank, 0)
-          #
-          n += 1
-          process += rank.buf_size
-          #
-          part = float(n) / nrank
-          sys.stdout.write('Complete {0:3.2f}%, compress {1:3.2f}%\t\r'.format(
-            100.0 * part, 100.0 * (self.fpck.cur_bit / 8.0) / process))
-          #
-          y += size
+      self.proc_ranks_idx = numpy.array([], dtype=int)
+      self.fpac.start_rec()
+      #
+      while size >= 2:
+        self.process(mx, size)
         #
-        x += size
+        r = numpy.arange(self.ranks.count)
+        r = numpy.setdiff1d(r, self.proc_ranks_idx)
+        #
+        if size > 2:
+          for i in r:
+            self.fpac.rec_bits(i, 2, 0)
+        else:
+          for i in r:
+            self.fpac.rec_bits(i, 2, 0)
+            #
+            for j in xrange(4):
+              # -- Low --
+              self.fpac.rec_bits(i, 8, self.ranks.data[i, j])
+        #
+        size /= 2
+        self.fpac.next_level()
+        #
+        n += 1.0
+        sys.stdout.write('\nComplete {0:3.2f}%\t\n'.format(100.0 * n / m))
       #
-      c += 1
-    #
-    del self.doms
+      self.fpac.flush_bits(width)
 
-  def cur_color_map(self):
-    '''
-    '''
-    return self.image.mx[:, :, self.cur_layer]
-
-  def calc_for_rank(self, rank, level):
-    '''
-      :param rank:
-      :param level:
-    '''
-    level += 1
+  def process(self, mx, size):
+    # Init ranks
+    ranks = self.ranks = Ranks()
+    ranks.setup(mx, size)
+    # Init domains
+    doms = Domains()
+    doms.setup(mx, size, self.option.dom_step, scale=2)
     #
-    if rank.rms == 0:
-      self.fpck.add_bits(2, 2)
-      self.fpck.add_bits(8, rank.mean)
-      #
-      print '\n-- 2 --'
-      return level - 1
+    n = ranks.count
+    m = doms.count
     #
-    ranks = []
-    ranks.append(rank)
-    ranks.extend(Square() for i in xrange(7))
+    u = numpy.empty((8, n, m))
+    v = numpy.empty((8, n, m))
+    eps = numpy.empty((8, n, m))
+    stat = numpy.empty((8, n, m), dtype=bool)
     #
-    trans = Transform(rank)
-    ranks[1].clone(trans.fliplr())
-    ranks[2].clone(trans.flipud())
-    ranks[3].clone(trans.rot90())
-    ranks[4].clone(trans.rot180())
-    ranks[5].clone(trans.rot270())
-    ranks[6].clone(trans.trans())
-    ranks[7].clone(trans.ttrans())
+    (u[0], v[0], eps[0], stat[0]) = doms.compare(ranks)
+    (u[1], v[1], eps[1], stat[1]) = doms.compare(ranks.trans.fliplr())
+    (u[2], v[2], eps[2], stat[2]) = doms.compare(ranks.trans.flipud())
+    (u[3], v[3], eps[3], stat[3]) = doms.compare(ranks.trans.rot90())
+    (u[4], v[4], eps[4], stat[4]) = doms.compare(ranks.trans.rot180())
+    (u[5], v[5], eps[5], stat[5]) = doms.compare(ranks.trans.rot270())
+    (u[6], v[6], eps[6], stat[6]) = doms.compare(ranks.trans.trans())
+    (u[7], v[7], eps[7], stat[7]) = doms.compare(ranks.trans.ttrans())
+    # Skip some ranks
+    xi = self.skiped_ranks()
+    if xi.size > 0:
+      stat[:, xi, :] = False
+      self.proc_ranks(xi)
+    # Check RMS
+    idx = numpy.nonzero(ranks.rms == 0.0)[0]
+    if idx.size > 0:
+      idx = numpy.setdiff1d(idx, xi)
+      #
+      stat[:, idx, :] = False
+      self.proc_ranks(idx)
+      #
+      for i in idx:
+        # -- 2 --
+        self.fpac.rec_bits(i, 2, 2)
+        self.fpac.rec_bits(i, 8, ranks.mean[i])
     #
-    best_rms = self.quick_eps + 1000.0
-    best_u = 0.0
-    best_v = 0.0
-    best_t = 0
-    best_x = 0
-    best_y = 0
+    (t, i, j) = numpy.nonzero(numpy.invert(stat))
+    eps[t, i, j] = eps.max() + 1.0
     #
-    j = 0
-    while j < self.doms_x:
-      i = 0
-      while i < self.doms_y:
-        dom = self.get_domain(i, j, rank.size, level - 1)
-        #
-        t = 0
-        while t < 8:
-          (stat, u, v) = ranks[t].calc_uv(dom)
-          if not stat:
-            t += 1
-            continue
-          #
-          data = dom.bright_transform(u, v)
-          eps = ranks[t].calc_distance(data)
-          #
-          if self.option.find_best_dom:
-            if eps < best_rms:
-              best_rms = eps
-              best_u = u
-              best_v = v
-              best_t = t
-              best_x = j
-              best_y = i
-          elif eps <= self.quick_eps:
-            self.fpck.add_bits(2, 1)
-            self.fpck.add_bits(self.dom_bit_y, i)
-            self.fpck.add_bits(self.dom_bit_x, j)
-            #
-            if t == 3:   # rot90
-              real_t = 5 # rot270
-            elif t == 5: # rot270
-              real_t = 3 # rot90
-            else:
-              real_t = t
-            #
-            self.fpck.add_bits(3, real_t)
-            self.fpck.add_bits(7, int(u * 3.3 / 10.0 * 127.0))
-            #
-            '''
-            if v < 0:
-              self.fpck.add_bits(1, 1)
-              self.fpck.add_bits(8, -v)
-            else:
-              self.fpck.add_bits(1, 0)
-              self.fpck.add_bits(8, v)
-            '''
-            self.fpck.add_bits(1, int(v < 0))
-            self.fpck.add_bits(8, int((-1 + 2 * int(v >= 0)) * v))
-            #
-            return level - 1
-          #
-          t += 1
-        #
-        i += 1
+    if self.option.find_best_dom:
+      t = eps.min(axis=2).argmin(axis=0)
+      i = numpy.arange(n) # ranks
+      j = eps.argmin(axis=2)[t, i] # domains
+      # For every rank...
+      best_rms = eps[t, i, j]
+      best_u = u[t, i, j]
+      best_v = v[t, i, j]
+      best_t = t
+      (best_x, best_y) = doms.coord(j)
       #
-      j += 1
-    #
-    if self.option.find_best_dom and (best_rms <= self.quick_eps):
-      self.fpck.add_bits(2, 1)
-      self.fpck.add_bits(self.dom_bit_y, best_y)
-      self.fpck.add_bits(self.dom_bit_x, best_x)
-      #
-      if best_t == 3:   # rot90
-        best_t = 5      # rot270
-      elif best_t == 5: # rot270
-        best_t = 3      # rot90
-      #
-      self.fpck.add_bits(3, best_t)
-      self.fpck.add_bits(7, int(best_u * 3.3 / 10.0 * 127.0))
-      #
-      '''
-      if best_v < 0:
-        self.fpck.add_bits(1, 1)
-        self.fpck.add_bits(8, -best_v)
-      else:
-        self.fpck.add_bits(1, 0)
-        self.fpck.add_bits(8, best_v)
-      '''
-      self.fpck.add_bits(1, int(best_v < 0))
-      self.fpck.add_bits(8, int((-1 + 2 * int(best_v >= 0)) * best_v))
-      #
-      return level - 1
-    #
-    self.fpck.add_bits(2, 0)
-    #
-    n = rank.size
-    if n > 2:
-      sub_rank = Square()
-      data = rank.data
-      m = n / 2
-      #
-      sub_rank.fill_data(data, 0, 0, m)
-      level = self.calc_for_rank(sub_rank, level)
-      #
-      sub_rank.fill_data(data, m, 0, m)
-      level = self.calc_for_rank(sub_rank, level)
-      #
-      sub_rank.fill_data(data, 0, m, m)
-      level = self.calc_for_rank(sub_rank, level)
-      #
-      sub_rank.fill_data(data, m, m, m)
-      level = self.calc_for_rank(sub_rank, level)
+      idx = numpy.nonzero(best_rms <= self.quick_eps)[0]
+      if idx.size > 0:
+        self.save_doms(i[idx], best_u[idx], best_v[idx],
+                       best_t[idx], best_x[idx], best_y[idx])
+        self.proc_ranks(i[idx])
     else:
-      cur_bit = self.fpck.cur_bit
-      #
-      self.fpck.add_bits(8, rank.data[0, 0])
-      self.fpck.add_bits(8, rank.data[1, 0])
-      self.fpck.add_bits(8, rank.data[0, 1])
-      self.fpck.add_bits(8, rank.data[1, 1])
-      #
-      if (self.fpck.cur_bit - cur_bit) > rank.buf_size:
-        print '\n-- Low --'
-    #
-    return level - 1
+      (t, i, j) = numpy.nonzero(eps <= self.quick_eps)
+      if t.size > 0:
+        (val, idx) = numpy.unique(i, return_index=True)
+        #
+        (t, i, j) = (t[idx], i[idx], j[idx])
+        (x, y) = doms.coord(j)
+        #
+        self.save_doms(i, u[t, i, j], v[t, i, j], t, x, y)
+        self.proc_ranks(i)
 
-  def get_domain(self, i, j, size, level):
+  def proc_ranks(self, idx):
     '''
-      :param i:
-      :param j:
-      :param size:
-      :param level:
+      Set current ranks as processed
     '''
-    dom = self.doms[i, j, level]
-    #
-    if dom == None:
-      y = i * self.option.dom_step
-      x = j * self.option.dom_step
+    self.proc_ranks_idx = numpy.append(self.proc_ranks_idx, idx)
+
+  def skiped_ranks(self):
+    '''
+      Get skiped ranks indexes
+    '''
+    idx = self.proc_ranks_idx
+    if idx.size > 0:
+      self.proc_ranks_idx = numpy.array([], dtype=int)
       #
-      dom = Square()
-      dom.fill_data_scale(self.cur_color_map(), y, x, size, 2)
-      self.doms[i, j, level] = dom
+      n = self.ranks.count_x / 2
+      m = idx.size
+      #
+      y = idx / n
+      x = idx % n
+      #
+      idx = numpy.zeros((4, m), dtype=int)
+      idx[0, :] = y * n * 4 + x * 2
+      idx[1, :] = idx[0, :] + 1
+      idx[2, :] = idx[0, :] + n * 2
+      idx[3, :] = idx[2, :] + 1
+      #
+      idx = idx.reshape(m * 4, order='F')
     #
-    return dom
+    return idx
+
+  def save_doms(self, r, u, v, t, x, y):
+    i = numpy.nonzero(t == 3)[0] # if rot90
+    j = numpy.nonzero(t == 5)[0] # if rot270
+    t[i] = 5 # --> rot270
+    t[j] = 3 # --> rot90
+    #
+    for i in xrange(r.size):
+      self.fpac.rec_bits(r[i], 2, 1)
+      self.fpac.rec_bits(r[i], self.dom_bit_y, y[i])
+      self.fpac.rec_bits(r[i], self.dom_bit_x, x[i])
+      #
+      self.fpac.rec_bits(r[i], 3, t[i])
+      self.fpac.rec_bits(r[i], 7, numpy.int32(u[i] * 3.3 / 10.0 * 127.0))
+      #
+      self.fpac.rec_bits(r[i], 1, numpy.int32(v[i] < 0.0))
+      self.fpac.rec_bits(r[i], 8, numpy.int32((-1.0 + 2.0 * numpy.float32(v[i] >= 0)) * v[i]))

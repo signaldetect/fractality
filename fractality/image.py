@@ -2,6 +2,7 @@
 
 from PIL import Image
 import numpy
+import struct
 
 class SrcImage:
   img = None
@@ -10,33 +11,52 @@ class SrcImage:
   def __init__(self):
     pass
 
-  def load(self, file_name):
+  def load(self, file_path):
     '''
-      :param file_name:
+      :param file_path:
     '''
     try:
-      self.img = Image.open(file_name)
+      self.img = Image.open(file_path)
     except IOError:
-      print 'Bad file name: {0}'.format(file_name)
+      print 'Bad file path: {0}'.format(file_path)
       return
     #
     self.mx = numpy.array(self.img)[-1 : : -1, :, :]
 
-  def show(self):
+  def save(self):
     pass
+
+  def show(self, axes=None):
+    if axes:
+      axes.cla()
+      axes.imshow(numpy.asarray(self.img))
+    else:
+      self.img.show()
+
+  def crop(self, x, y):
+    box = (x[0], y[0], x[1], y[1])
+    box = tuple(int(n) for n in box)
+    #
+    self.img = self.img.crop(box)
+    #self.img.save('cropped.bmp')
+    self.mx = numpy.array(self.img)[-1 : : -1, :, :]
   
-class PckImage:
+class PacImage:
   option = None
 
+  cur_level = 0
+  levels = None
+
   cur_bit = 0
-  #bits = None
   out_buf = None
 
   def __init__(self):
-    self.fid = open('debug.dat', 'wt')
+    #self.fid = open('debug.dat', 'wt')
+    pass
 
   def __del__(self):
-    self.fid.close()
+    #self.fid.close()
+    pass
 
   def setup(self):
     '''
@@ -48,15 +68,71 @@ class PckImage:
     # Выделение памяти под выходной буфер
     self.out_buf = numpy.zeros(n, dtype=numpy.uint16)
 
+  def start_rec(self):
+    '''
+    '''
+    size = self.option.rank_size
+    n = int(numpy.ceil(numpy.log2(size)))
+    #
+    self.levels = list()
+    for i in xrange(n):
+      self.levels.append(dict())
+    #
+    self.cur_level = 0
+
+  def next_level(self):
+    '''
+    '''
+    self.cur_level += 1
+
+  def rec_bits(self, r, b, val):
+    '''
+      :param r:
+      :param b:
+      :param val:
+    '''
+    #self.fid.write('{0}: {1}\t{2}\n'.format(r, b, val))
+    i = self.cur_level
+    if self.levels[i].has_key(r):
+      self.levels[i][r] += [b, val]
+    else:
+      self.levels[i][r] = [b, val]
+
+  def flush_bits(self, width):
+    '''
+      :param width:
+    '''
+    size = self.option.rank_size
+    n = int(numpy.ceil(numpy.log2(size))) - 1
+    #
+    for i in xrange(n, 0, -1):
+      num_x = width / (2 ** (abs(i - n) + 1))
+      #
+      for id in self.levels[i].keys():
+        y = id / (2 * num_x)
+        x = (id % num_x) / 2
+        parent_id = (num_x / 2) * y + x
+        #
+        self.levels[i - 1][parent_id] += self.levels[i][id]
+    #
+    root = self.levels[0]
+    del self.levels
+    #
+    for recs in root.values():
+      for i in xrange(0, len(recs), 2):
+        #self.txt_bits(recs[i], recs[i + 1])
+        self.add_bits(recs[i], recs[i + 1])
+    #
+    del root
+
+  def txt_bits(self, b, val):
+    self.fid.write('{0}\t{1}\n'.format(b, val))
+
   def add_bits(self, b, val):
     '''
       :param b:
       :param val:
     '''
-    #
-    self.fid.write('{0}\t{1}\n'.format(b, val))
-    #
-    #
     nb = numpy.uint8(b) # bit8
     val = numpy.uint16(val) # bit16
     #
@@ -77,9 +153,30 @@ class PckImage:
     #
     self.cur_bit += b
 
+  def get_bits(self, b):
+    nb = numpy.uint8(b) # bit8
+    #
+    num_word = numpy.uint32(self.cur_bit) # bit32
+    nbit_on_word = numpy.uint8(num_word - ((num_word >> 4) << 4)) # bit8
+    num_word = num_word >> 4
+    nbit_on_sword = numpy.uint8(0) # bit8
+    #
+    rtail = 16 - numpy.int8(nbit_on_word + nb)
+    if rtail < 0:
+      nbit_on_sword = numpy.uint8(abs(rtail))
+      rtail = 0
+    #
+    left_p = numpy.uint16((self.out_buf[num_word] << nbit_on_word) >> (nbit_on_word + rtail)) # bit16
+    right_p = numpy.uint16(self.out_buf[num_word + 1] >> (16 - nbit_on_sword)) # bit16
+    #
+    left_p <<= nbit_on_sword
+    #
+    self.cur_bit += b
+    return left_p + right_p
+
   def save(self, file_name):
     '''
-      Save to binary file and flush output buffer
+      Save data to a binary file and flush output buffer
       :param file_name:
     '''
     # Start of writing
@@ -103,3 +200,43 @@ class PckImage:
     # End of writing and clear output buffer
     fid.close()
     del self.out_buf
+
+  def load(self, file_name):
+    '''
+      Load data from a binary file
+      :param file_name:
+    '''
+    # Start of reading
+    try:
+      fid = open(file_name, 'rb')
+    except IOError:
+      print 'Can''t open file: {0}'.format(file_name)
+      return
+    # Check format support
+    ch = fid.read(2)
+    if (ch[0] != 'f') or (ch[1] != 'c'):
+      print 'The format is not supported'
+      return
+    ch = fid.read(2)
+    if (ord(ch[0]) > 1) or (ord(ch[1]) > 0):
+      print 'The format is not supported'
+      return
+    # Read options from a binary file
+    ch = fid.read(2)
+    self.option.width = struct.unpack('H', ch)[0]
+    ch = fid.read(2)
+    self.option.height = struct.unpack('H', ch)[0]
+    ch = fid.read(2)
+    self.option.rank_size = struct.unpack('H', ch)[0]
+    ch = fid.read(2)
+    self.option.min_rank_size = struct.unpack('H', ch)[0]
+    ch = fid.read(1)
+    self.option.dom_step = struct.unpack('B', ch)[0]
+    ch = fid.read(4)
+    data_ln = struct.unpack('I', ch)[0]
+    # Read main data from a binary file
+    ch = fid.read(data_ln)
+    self.out_buf = numpy.array(struct.unpack('B' * data_ln, ch),
+                               dtype=numpy.uint16)
+    # End of reading
+    fid.close()

@@ -1,9 +1,7 @@
-# ~coding: utf-8~
+#!/usr/bin/python
 
-from fractality import Packer
-from gui import Application
+from core.app import Central
 
 if __name__ == '__main__':
-  pac = Packer()
-  app = Application(kernel=pac)
+  app = Central()
   app.run()

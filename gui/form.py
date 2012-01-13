@@ -9,13 +9,13 @@ class PropertyEditor(tk.Frame):
     'check': 2
   }
 
-  count = 0
-
   meth = None
   rank_size = None
   dom_step = None
   find_best_dom = None
   tol = None
+
+  count = 0
 
   def __init__(self, parent, props):
     tk.Frame.__init__(self, master=parent, borderwidth=0)
@@ -55,9 +55,12 @@ class PropertyEditor(tk.Frame):
     return prop
 
 class Properties:
-  _options = None
-
-  METHODS = ['FE-algorithm', 'Pearson correlation', 'Entropy factor']
+  METHODS = [
+    'FE-algorithm',
+    'Pearson correlation',
+    'Entropy factor',
+    'Nonlinear mapping'
+  ]
 
   meth = None
   rank_size = None
@@ -65,8 +68,8 @@ class Properties:
   find_best_dom = None
   tol = None
 
-  def __init__(self, options):
-    self._options = options
+  def __init__(self):
+    pass
 
   def setup(self, parent):
     self.meth = tk.StringVar(parent)
@@ -84,9 +87,10 @@ class Properties:
     self.tol = tk.DoubleVar(parent)
     self.tol.set(0.005) # default value
   
-  def action_compress(self):
+  def compress_started(self, option):
     # Export all properties to options
-    self._options.rank_size = self.rank_size.get()
-    self._options.dom_step = self.dom_step.get()
-    self._options.find_best_dom = self.find_best_dom.get()
-    self._options.eps = self.tol.get()
+    option.method = self.meth.get()
+    option.rank_size = self.rank_size.get()
+    option.dom_step = self.dom_step.get()
+    option.find_best_dom = self.find_best_dom.get()
+    option.eps = self.tol.get()

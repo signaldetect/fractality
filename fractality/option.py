@@ -3,6 +3,7 @@
 import numpy
 
 class PacOption:
+  method = 'FE-algorithm'
   rank_size = 2 # размер ранговой области
   min_rank_size = 1
   dom_step = 1 # шаг поиска домена

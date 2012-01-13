@@ -5,14 +5,109 @@ matplotlib.use('TkAgg')
 
 import Tkinter as tk
 import os
+import tool, form, widget
 
+from core.messaging import Publisher
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.backends.backend_tkagg import NavigationToolbar2TkAgg
 from matplotlib.widgets import RectangleSelector
-from widget import TipButton
+from tkFont import Font
 
-class View(tk.Frame):
+class View:
+  root = None
+
+  info = None
+  graph = None
+  actions = None
+  props = None
+
+  toolbar = None
+  settings = None
+
+  def __init__(self):
+    self.root = tk.Tk()
+    self.root.wm_title('Fractality GUI')
+    self.root.wm_iconbitmap(os.path.join('gui', 'images', 'logo.ico'))
+    #
+    self.info = Informer(parent=self.root)
+    self.graph = Graph(parent=self.root)
+    self.actions = tool.Actions()
+    self.props = form.Properties()
+    #
+    self.toolbar = tool.ActionBar(parent=self.root, actions=self.actions)
+    self.settings = form.PropertyEditor(parent=self.root, props=self.props)
+    #
+    self.toolbar.grid(row=0, column=0, rowspan=2,
+                      sticky=tk.N+tk.S, ipadx=4)
+    self.settings.grid(row=0, column=1, rowspan=2,
+                       sticky=tk.N, padx=8, pady=8)
+    self.info.grid(row=1, column=1,
+                   sticky=tk.W+tk.E+tk.S, padx=8, pady=19)
+    self.graph.grid(row=0, column=2, rowspan=2,
+                    sticky=tk.W+tk.E+tk.N+tk.S)
+    #
+    self.root.grid_rowconfigure(0, weight=1, minsize=200)
+    self.root.grid_columnconfigure(2, weight=1, minsize=300)
+
+  def run(self):
+    tk.mainloop()
+  
+  def quit(self):
+    self.root.quit()    # stops mainloop
+    self.root.destroy() # this is necessary on Windows to prevent Fatal
+                        # Python Error: PyEval_RestoreThread: NULL tstate
+
+class InformerSubscriber:
+  def progress_stopped(self):
+    pass
+
+class Informer(tk.Frame, Publisher):
+  parent = None
+  console = None
+  progress = None
+
+  def __init__(self, parent=None):
+    tk.Frame.__init__(self, master=parent, borderwidth=0)
+    Publisher.__init__(self)
+    #
+    self.parent = parent
+    #
+    self.console = tk.Text(self, width=5, height=12, relief=tk.FLAT,
+                           state=tk.DISABLED,
+                           font=Font(family='Helvetica', size=8))
+    self.console.pack(side=tk.BOTTOM, expand=1, fill=tk.BOTH)
+
+  def send(self, text=''):
+    self.console.config(state=tk.NORMAL)
+    self.console.insert(tk.END, text + '\n')
+    self.console.config(state=tk.DISABLED)
+
+  def compress_started(self, option):
+    self.send('Compressing...')
+    #self.send('Decompressing...')
+    self.progress = widget.ProgressDialog(self.parent, title='Compressing...',
+                                          callback=self.stop_progress)
+    self.progress.update()
+    self.progress.align_center()
+
+  def progressing(self, value):
+    #sys.stdout.write('\nComplete {0:3.2f}%\t\n'.format(100.0 * value))
+    self.progress.meter.set(value)
+    self.progress.update()
+
+  def compress_aborted(self):
+    self.send('Image isn\'t compressed')
+
+  def compressed(self):
+    self.progress.ok()
+    self.send('Image is compressed')
+
+  def stop_progress(self):
+    self.send('Stop...')
+    self.notify('progress_stopped')
+
+class Graph(tk.Frame):
   axes = None
   canvas = None
   toolbar = None
@@ -85,9 +180,9 @@ class Controls(NavigationToolbar2TkAgg, tk.Frame):
   def _Button(self, text, file, command):
     file = os.path.join('gui', 'images', file.replace('.ppm', '.gif'))
     img = tk.PhotoImage(master=self, file=file)
-    btn = TipButton(master=self, tip=text, text=text,
-                    padx=2, pady=2, image=img, command=command,
-                    relief=tk.FLAT, borderwidth=0)
+    btn = widget.TipButton(master=self, tip=text, text=text,
+                           padx=2, pady=2, image=img, command=command,
+                           relief=tk.FLAT, borderwidth=0)
     btn._ntimage = img
     btn.pack(side=tk.TOP, pady=2)
     #

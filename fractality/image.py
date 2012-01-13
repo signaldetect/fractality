@@ -1,8 +1,9 @@
 # ~coding: utf-8~
 
 from PIL import Image
-import numpy
-import struct
+
+import ImageChops
+import numpy, struct, math, operator
 
 class SrcImage:
   img = None
@@ -10,6 +11,14 @@ class SrcImage:
 
   def __init__(self):
     pass
+
+  def create(self):
+    mx = self.mx[-1 : : -1, :, :]
+    w = mx.shape[1]
+    h = mx.shape[0]
+    #self.img = Image.frombuffer('RGB', (w, h), mx, 'raw', 'RGB', 0, 1)
+    self.img = Image.fromstring('RGB', (w, h), mx.tostring(),
+                                'raw', 'RGB', 0, 1)
 
   def load(self, file_path):
     '''
@@ -21,10 +30,17 @@ class SrcImage:
       print 'Bad file path: {0}'.format(file_path)
       return
     #
+    self.img = self.img.convert('RGB')
     self.mx = numpy.array(self.img)[-1 : : -1, :, :]
 
-  def save(self):
-    pass
+  def save(self, file_path):
+    '''
+      :param file_path:
+    '''
+    try:
+      self.img.save(file_path)
+    except IOError:
+      print 'Bad file path: {0}'.format(file_path)
 
   def show(self, axes=None):
     if axes:
@@ -34,13 +50,41 @@ class SrcImage:
       self.img.show()
 
   def crop(self, x, y):
-    box = (x[0], y[0], x[1], y[1])
-    box = tuple(int(n) for n in box)
-    #
+    box = (int(x[0]), int(y[0]), int(x[1]), int(y[1]))
     self.img = self.img.crop(box)
     #self.img.save('cropped.bmp')
+    self.img.load()
+    #
     self.mx = numpy.array(self.img)[-1 : : -1, :, :]
-  
+
+  def rmsdiff(self, other):
+    '''
+      Calculate the root-mean-square difference between two images
+    '''
+    im1 = self.img
+    im2 = other.img
+    diff = ImageChops.difference(im1, im2)
+    h = diff.histogram()
+    sq = (value * ((idx % 256) ** 2) for idx, value in enumerate(h))
+    sum_of_squares = sum(sq)
+    return math.sqrt(sum_of_squares / float(im1.size[0] * im1.size[1]))
+    '''
+    h1 = self.img.histogram()
+    h2 = other.img.histogram()
+    return math.sqrt(reduce(operator.add, map(lambda a,b: (a-b)**2, h1, h2))/len(h1))
+    '''
+    '''
+    im1 = self.img
+    im2 = other.img
+    #
+    h = ImageChops.difference(im1, im2).histogram()
+    # Calculate RMS
+    #return math.sqrt(reduce(operator.add,
+    #                        map(lambda h, i: h * (i**2), h, range(256))
+    #                       ) / (float(im1.size[0]) * im1.size[1]))
+    return math.sqrt(sum(h*(i**2) for i, h in enumerate(h)) / (float(im1.size[0]) * im1.size[1]))
+    '''
+
 class PacImage:
   option = None
 
@@ -67,6 +111,7 @@ class PacImage:
     n = numpy.uint32(self.option.width * self.option.height * 3 * 1.2)
     # Выделение памяти под выходной буфер
     self.out_buf = numpy.zeros(n, dtype=numpy.uint16)
+    self.cur_bit = 0
 
   def start_rec(self):
     '''
@@ -166,13 +211,24 @@ class PacImage:
       nbit_on_sword = numpy.uint8(abs(rtail))
       rtail = 0
     #
-    left_p = numpy.uint16((self.out_buf[num_word] << nbit_on_word) >> (nbit_on_word + rtail)) # bit16
-    right_p = numpy.uint16(self.out_buf[num_word + 1] >> (16 - nbit_on_sword)) # bit16
+    if num_word < len(self.out_buf):
+      left_p = numpy.uint16((self.out_buf[num_word] << nbit_on_word) >> (nbit_on_word + rtail)) # bit16
+    else:
+      left_p = numpy.uint16(0)
+    if (num_word + 1) < len(self.out_buf):
+      right_p = numpy.uint16(self.out_buf[num_word + 1] >> (16 - nbit_on_sword)) # bit16
+    else:
+      right_p = numpy.uint16(0)
     #
     left_p <<= nbit_on_sword
     #
     self.cur_bit += b
     return left_p + right_p
+
+  def compression(self, src_image):
+    bsize = float(src_image.mx.size)
+    csize = numpy.uint32(numpy.ceil(self.cur_bit / 8.0))
+    return 100.0 * csize / bsize
 
   def save(self, file_name):
     '''
@@ -201,16 +257,16 @@ class PacImage:
     fid.close()
     del self.out_buf
 
-  def load(self, file_name):
+  def load(self, file_path):
     '''
       Load data from a binary file
       :param file_name:
     '''
     # Start of reading
     try:
-      fid = open(file_name, 'rb')
+      fid = open(file_path, 'rb')
     except IOError:
-      print 'Can''t open file: {0}'.format(file_name)
+      print 'Can''t open file: {0}'.format(file_path)
       return
     # Check format support
     ch = fid.read(2)
@@ -236,7 +292,7 @@ class PacImage:
     data_ln = struct.unpack('I', ch)[0]
     # Read main data from a binary file
     ch = fid.read(data_ln)
-    self.out_buf = numpy.array(struct.unpack('B' * data_ln, ch),
+    self.out_buf = numpy.array(struct.unpack('B' * (data_ln - 1), ch),
                                dtype=numpy.uint16)
     # End of reading
     fid.close()

@@ -1,11 +1,12 @@
 # ~coding: utf-8~
 
-import os, time
+import os
 import Tkinter as tk
 import tkFileDialog
-import tkMessageBox
 
+from core.messaging import Publisher
 from widget import TipButton
+#from fractality.image import SrcImage
 
 class ActionBar(tk.Frame):
   load_btn = None
@@ -37,68 +38,62 @@ class ActionBar(tk.Frame):
     #
     return btn
 
-class Actions:
-  kernel = None
-  view = None
+class ActionsSubscriber:
+  def load_invoked(self, path):
+    pass
 
-  subs = []
-
-  def __init__(self, kernel, view):
-    self.kernel = kernel
-    self.view = view
+  def select_invoked(self):
+    pass
   
-  def subscribe(self, sub):
-    self.subs.append(sub)
+  def compress_invoked(self):
+    pass
 
+  def save_invoked(self, path):
+    pass
+
+  def decompress_invoked(self):
+    pass
+
+class Actions(Publisher):
+  def __init__(self):
+    Publisher.__init__(self)
+  
   def load(self):
-    path = tkFileDialog.askopenfilename(
-      filetypes=[('BMP', '*.bmp'), ('PNG', '*.png')])
+    path = tkFileDialog.askopenfilename(filetypes=[
+      ('All Image Files',
+       '*.bmp;*.jpg;*.jpeg;*.png;*.ppm;*.pbm;*.tif;*.tiff'),
+      ('BMP', '*.bmp'), ('JPEG', '*.jpg;*.jpeg'), ('PNG', '*.png'),
+      ('PPM', '*.ppm;*.pbm'), ('TIFF', '*.tif;*.tiff')])
     if path:
-      self.notify('load')
-      #
-      self.kernel.image.load(path)
-      #
-      self.kernel.image.show(self.view.axes)
-      self.view.redraw()
-      #
-      self.view.toolbar.set_message('Image is loaded')
-      #self.view.toolbar.set_message('Image isn\'t loaded')
-      #
-      self.notify('loaded')
+      self.notify('load_invoked', path=path)
 
   def select(self):
-    self.notify('select')
-    self.view.create_selector(callback=self.kernel.image.crop)
-    self.notify('selected')
+    self.notify('select_invoked')
 
   def compress(self):
-    self.notify('compress')
+    self.notify('compress_invoked')
+
+  def decompress(self):
+    self.notify('decompress_invoked')
     #
-    try:
-      tic = time.time()
-      self.kernel.compress()
-      toc = time.time() - tic
-    except MemoryError:
-      tkMessageBox.showerror('Not enough memory',
-                             'Please select a smaller fragment of the image')
-      self.view.toolbar.set_message('Image isn\'t compressed')
-      return
-    #
-    print '\n{0:.2f} sec. ({1:.2f} min.) has elapsed'.format(toc, toc / 60)
-    self.view.toolbar.set_message('Image is compressed')
-    #
-    self.notify('compressed')
-    #
+    path = tkFileDialog.asksaveasfilename(defaultextension='.bmp',
+                                          filetypes=[
+      ('BMP', '*.bmp'), ('JPEG', '*.jpg;*.jpeg'), ('PNG', '*.png'),
+      ('PPM', '*.ppm;*.pbm'), ('TIFF', '*.tif;*.tiff')])
+    if path:
+      self.notify('resave_invoked', path=path)
+    '''
+    other = SrcImage()
+    other.load('arthrosis.bmp')
+    self.kernel.option.rank_size = 8
+    (width, height) = self.kernel.option.fix_image_size(other)
+    (width, height) = self.kernel.option.fix_image_size(self.kernel.image)
+    rms = self.kernel.image.rmsdiff(other)
+    print rms
+    '''
+
+  def compressed(self):
     path = tkFileDialog.asksaveasfilename(defaultextension='.fpac',
                                           filetypes=[('FPAC', '*.fpac')])
     if path:
-      self.kernel.fpac.save(path)
-    self.view.toolbar.set_message('Compressed image is saved')
-
-  def decompress(self):
-    print 'Decompress'
-
-  def notify(self, type):
-    if type == 'compress':
-      for sub in self.subs:
-        sub.action_compress()
+      self.notify('save_invoked', path=path)
